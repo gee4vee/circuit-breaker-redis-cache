@@ -1,0 +1,13 @@
+/target
+/.m2
+
+/.classpath
+/.project
+/.settings
+
+.*.swp
+.DS_Store
+
+.idea
+*.iml
+
