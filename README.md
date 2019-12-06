@@ -6,7 +6,7 @@ The class `com.ibm.cloud.cache.redis.CircuitBreakerRedisCache` wraps all calls t
 ## How to use
 The wrapping is implemented via [Spring Aspects](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#aop-atconfigurable) such that whenever a `RedisCache` instance is requested from the cache manager, it is wrapped by `CircuitBreakerRedisCache`. Therefore an application only needs the following to make use of this cache:
 1. Add this project as a dependency.
-2. Create a `@Bean`-annotated methods that will create the following objects: `io.github.resilience4j.circuitbreaker.CircuitBreakerConfig`, `io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry`, `io.github.resilience4j.circuitbreaker.CircuitBreaker`. These methods typically reside in an extension of `org.springframework.cache.annotation.CachingConfigurerSupport` when utilizing [Spring Cache](https://spring.io/guides/gs/caching/).
+2. Create `@Bean`-annotated methods that will create the following objects: `io.github.resilience4j.circuitbreaker.CircuitBreakerConfig`, `io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry`, `io.github.resilience4j.circuitbreaker.CircuitBreaker`. These methods typically reside in an extension of `org.springframework.cache.annotation.CachingConfigurerSupport` when utilizing [Spring Cache](https://spring.io/guides/gs/caching/).
 
 ## Sample configuration code
 Example Circuit Breaker configuration beans follow. With this code:
