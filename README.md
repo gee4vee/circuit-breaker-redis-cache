@@ -1,13 +1,21 @@
 # Circuit Breaker Redis Cache
-This project provides a wrapper around Spring Data Redis `RedisCache` that incorporates a Circuit Breaker from the [resilience4j](https://github.com/resilience4j/resilience4j) project. This is useful in cases where the Redis server is down or slow and the application needs to continue servicing requests without a cache, albeit more slowly.
+This project provides a wrapper around Spring Data Redis `RedisCache` that incorporates a Circuit Breaker from the [resilience4j](https://github.com/resilience4j/resilience4j) project. This is useful in cases where the Redis server is down or slow and the application needs to continue servicing requests without a cache, albeit more slowly. In certain situations, Redis server instability coupled with Spring Data Redis Cache usage can lead to application instability. A circuit breaker provides an elegant solution in these scenarios.
 
-`com.ibm.cloud.cache.redis.CircuitBreakerRedisCache` wraps all calls to the underlying `RedisCache` with `io.github.resilience4j.circuitbreaker.CircuitBreaker` decoration such that if the calls fail enough to open the circuit, the calls will be subsequently bypassed until the circuit reopens. 
+The class `com.ibm.cloud.cache.redis.CircuitBreakerRedisCache` wraps all calls to the underlying `RedisCache` with `io.github.resilience4j.circuitbreaker.CircuitBreaker` decoration such that if the calls fail enough to open the circuit, the calls will be subsequently bypassed until the circuit reopens. 
 
+## How to use
 The wrapping is implemented via [Spring Aspects](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#aop-atconfigurable) such that whenever a `RedisCache` instance is requested from the cache manager, it is wrapped by `CircuitBreakerRedisCache`. Therefore an application only needs the following to make use of this cache:
 1. Add this project as a dependency.
-2. Create a `@Bean`-annotated method that will create the following objects: `io.github.resilience4j.circuitbreaker.CircuitBreakerConfig`, `io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry`, `io.github.resilience4j.circuitbreaker.CircuitBreaker`. These methods typically reside in an extension of `org.springframework.cache.annotation.CachingConfigurerSupport` when utilizing Spring Cache.
+2. Create a `@Bean`-annotated methods that will create the following objects: `io.github.resilience4j.circuitbreaker.CircuitBreakerConfig`, `io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry`, `io.github.resilience4j.circuitbreaker.CircuitBreaker`. These methods typically reside in an extension of `org.springframework.cache.annotation.CachingConfigurerSupport` when utilizing [Spring Cache](https://spring.io/guides/gs/caching/).
 
-Example Circuit Breaker configuration beans follow. With this code, the Circuit Breaker is configured to be time-based, with a sliding window of 2 minutes. If 50% of the calls within this window (after a minimum of 10 calls) fail or are slower than 1.5 seconds, the circuit is open and `RedisCache` calls are not made. At this point `CircuitBreakerRedisCache` behaves as a no-op cache, triggering cache misses. After 3 minutes, the circuit goes to `HALF_OPEN` state, allowing up to 50 `RedisCache` calls to see whether they succeed. If at least 50% calls do succeed, then the circuit is closed and `RedisCache` calls are made normally.
+## Sample configuration code
+Example Circuit Breaker configuration beans follow. With this code:
+- The Circuit Breaker sliding window is configured to be time-based, with a duration of 2 minutes. 
+- The failure and slow call rates are both set to 50%.
+- A minimum of 10 calls must be made before the circuit breaker can begin opening.
+
+If 50% of the calls within the sliding window period fail or are slower than 1.5 seconds, the circuit is open and `RedisCache` calls are not made. At this point `CircuitBreakerRedisCache` behaves as a no-op cache, triggering cache misses. After 3 minutes, the circuit goes to `HALF_OPEN` state, allowing up to 50 `RedisCache` calls to see whether they succeed. If at least 50% calls do succeed, then the circuit is closed and `RedisCache` calls are made normally.
+
 ```java
 // ...
 import java.time.Duration;
