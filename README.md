@@ -1,7 +1,7 @@
 # Circuit Breaker Redis Cache
 This project provides a wrapper around Spring Data Redis `RedisCache` that incorporates a Circuit Breaker from the [resilience4j](https://github.com/resilience4j/resilience4j) project. This is useful in cases where the Redis server is down or slow and the application needs to continue servicing requests without a cache, albeit more slowly. In certain situations, Redis server instability coupled with Spring Data Redis Cache usage can lead to application instability. A circuit breaker provides an elegant solution in these scenarios.
 
-The class `com.ibm.cloud.cache.redis.CircuitBreakerRedisCache` wraps all calls to the underlying `RedisCache` with `io.github.resilience4j.circuitbreaker.CircuitBreaker` decoration such that if the calls fail enough to open the circuit, the calls will be subsequently bypassed until the circuit reopens. 
+The class `com.ibm.cloud.cache.redis.CircuitBreakerRedisCache` wraps all calls to the underlying `RedisCache` with `io.github.resilience4j.circuitbreaker.CircuitBreaker` decoration such that if the calls fail enough to open the circuit, the calls will be subsequently bypassed until the circuit closes. 
 
 ## How to use
 The wrapping is implemented via [Spring Aspects](https://docs.spring.io/spring/docs/current/spring-framework-reference/core.html#aop-atconfigurable) such that whenever a `RedisCache` instance is requested from the cache manager, it is wrapped by `CircuitBreakerRedisCache`. Therefore an application only needs the following to make use of this cache:
