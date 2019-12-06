@@ -12,8 +12,7 @@ import org.springframework.data.redis.cache.RedisCacheManager;
 import org.springframework.data.redis.cache.RedisCacheWriter;
 
 /**
- * @author gvalenc
- *
+ * Only needed to facilitate unit testing.
  */
 public class CircuitBreakerRedisCacheManager extends RedisCacheManager {
     

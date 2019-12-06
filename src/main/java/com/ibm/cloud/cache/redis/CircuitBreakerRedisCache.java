@@ -1,8 +1,4 @@
 package com.ibm.cloud.cache.redis;
-/**
- * 
- */
-
 
 import java.util.concurrent.Callable;
 import java.util.logging.Level;
@@ -18,8 +14,8 @@ import io.vavr.CheckedFunction0;
 import io.vavr.control.Try;
 
 /**
- * RedisCache implementation that uses a resilient4j circuit breaker to bypass the Redis instance calls if the circuit 
- * is open. This allows us to not be sensitive to ICD Redis instabilities. If the call to ICD Redis fails, Spring Cache 
+ * <p>RedisCache implementation that uses a resilience4j Circuit Breaker to bypass the Redis instance calls if the circuit 
+ * is open. This allows us to not be sensitive to Redis instabilities. If the call to Redis fails, Spring Cache 
  * will treat it as a cache miss and continue executing the cached method normally.
  */
 public class CircuitBreakerRedisCache extends RedisCache {
@@ -31,19 +27,33 @@ public class CircuitBreakerRedisCache extends RedisCache {
     private CircuitBreaker circuitBreaker;
     
     /**
-     * @param name
-     * @param cacheWriter
-     * @param cacheConfig
+     * 
+     * @param redisCache The <code>RedisCache</code> instance to be wrapped.
      */
     public CircuitBreakerRedisCache(RedisCache redisCache) {
+    	/*
+    	 * this class is implemented using both composition and inheritance due to limitations in RedisCache that prevent 
+    	 * properly extending it. if this PR is approved, composition is no longer needed: https://github.com/spring-projects/spring-data-redis/pull/500
+    	 */
         super(redisCache.getName(), redisCache.getNativeCache(), redisCache.getCacheConfiguration());
         this.redisCache = redisCache;
         ApplicationContext appCtx = ApplicationContextHolder.getContext();
         if (appCtx != null) {
+        	/*
+        	 * using this bean retrieval instead of @Autowired due to the RedisCache field which needs to be passed and can't 
+        	 * be instantiated directly.
+        	 * 
+        	 * this call can be changed to specify a bean qualifier name in cases where multiple circuit breakers are used.
+        	 */
         	this.circuitBreaker = appCtx.getBean(CircuitBreaker.class);
         }
     }
     
+    /**
+     * Used by unit tests.
+     * @param redisCache
+     * @param cb
+     */
     public CircuitBreakerRedisCache(RedisCache redisCache, CircuitBreaker cb) {
         this(redisCache);
         this.circuitBreaker = cb;
@@ -57,16 +67,34 @@ public class CircuitBreakerRedisCache extends RedisCache {
         return result.get();
     }
 
+    /**
+     * Logs a portion of the Circuit Breaker's metrics at a predefined logger level.
+     */
 	protected void logCBMetrics() {
 		logCBMetrics(this.circuitBreaker, loggerLevel);
 	}
     
-    private <T> Try<T> recover(CallNotPermittedException e) {
+	/**
+	 * Subclasses can override to define new behavior when the circuit is open.
+	 * 
+	 * @param <T> The return type.
+	 * @param e A <code>CallNotPermittedException</code> exception indicating the call was not allowed because the circuit is open.
+	 * 
+	 * @return A <code>Success</code> with <code>null</code> return value.
+	 */
+    protected <T> Try<T> recover(CallNotPermittedException e) {
     	logger.log(loggerLevel, "Circuit broken, cache bypassed: " + e.getMessage());
     	return Try.success(null);
     }
     
-    private Void recoverVoid(CallNotPermittedException e) {
+    /**
+     * Subclasses can override to define new behavior when the circuit is open.
+     * 
+	 * @param e A <code>CallNotPermittedException</code> exception indicating the call was not allowed because the circuit is open.
+     * 
+     * @return <code>null</code>
+     */
+    protected Void recoverVoid(CallNotPermittedException e) {
     	logger.log(loggerLevel, "Circuit broken, cache bypassed: " + e.getMessage());
     	return null;
     }

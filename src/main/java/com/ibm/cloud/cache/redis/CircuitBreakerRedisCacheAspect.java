@@ -22,9 +22,9 @@ public class CircuitBreakerRedisCacheAspect {
 	}
 	
 	/**
-	 * Used to wrap <code>RedisCache</code> instances with <code>CircuitBreakerRedisCache</code>. Every time a cache manager 
-	 * returns a cache instance, this method checks if it is a <code>RedisCache</code> and if so, wraps it with a circuit breaker 
-	 * supported implementation.
+	 * Wraps <code>RedisCache</code> instances with <code>CircuitBreakerRedisCache</code>. Every time a cache manager 
+	 * returns a cache instance, this method checks if it is a <code>RedisCache</code> and if so, wraps it with our circuit breaker 
+	 * implementation.
 	 * 
 	 * @return A <code>CircuitBreakerRedisCache</code> if the underlying cache instance is of type <code>RedisCache</code>; otherwise 
 	 * returns the underlying cache instance.
