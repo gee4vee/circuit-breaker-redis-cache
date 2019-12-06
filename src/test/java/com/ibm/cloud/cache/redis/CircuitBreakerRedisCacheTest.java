@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.Optional;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.junit.Before;
@@ -17,6 +18,8 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 import org.springframework.cache.Cache.ValueWrapper;
 import org.springframework.cache.support.SimpleValueWrapper;
 import org.springframework.core.convert.ConversionService;
@@ -26,14 +29,12 @@ import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheWriter;
 import org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair;
 
-import com.ibm.cloud.cache.redis.CircuitBreakerRedisCache;
-import com.ibm.cloud.cache.redis.CircuitBreakerRedisCacheManager;
-
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker.State;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig.SlidingWindowType;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
+import io.github.resilience4j.circuitbreaker.event.CircuitBreakerOnStateTransitionEvent;
 
 public class CircuitBreakerRedisCacheTest {
     
@@ -43,14 +44,13 @@ public class CircuitBreakerRedisCacheTest {
     
     public static final String CB_NAME = "testRedisCB";
     public static final String CB_CONFIG_NAME = "testRedisCBConfig";
-    
     public static final int CB_FAILURE_RATE_THRESHOLD = 100;
-    public static final int CB_SLOW_RATE_THRESHOLD = 50;
     public static final int CB_SLIDING_WINDOW_SIZE = 6;
     public static final int CB_MIN_NUM_CALLS = 6;
     public static final Duration CB_WAIT_DURATION_OPEN_STATE = Duration.ofSeconds(3);
     public static final int CB_NUM_CALLS_HALF_OPEN_STATE = 6;
     public static final Duration CB_SLOW_CALL_DURATION = Duration.ofMillis(1500); // 1.5 secs
+    public static final int CB_SLOW_RATE_THRESHOLD = 50;
     
     @Mock
     private RedisCacheWriter cacheWriter;
@@ -70,25 +70,6 @@ public class CircuitBreakerRedisCacheTest {
     private CircuitBreakerRedisCache cache;
     
     private CircuitBreaker cb;
-    
-    public CircuitBreaker defaultCircuitBreaker(CircuitBreakerRegistry circuitBreakerRegistry) {
-        CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker(CB_NAME, CB_CONFIG_NAME);
-        circuitBreaker.getEventPublisher().onStateTransition(event -> logger.warning("CircuitBreaker " + event.getCircuitBreakerName() 
-                                            + " transitioned from " + event.getStateTransition().getFromState() 
-                                            + " to " + event.getStateTransition().getToState()));
-        return circuitBreaker;
-    }
-    
-    public CircuitBreakerRegistry defaultCircuitBreakerRegistry(CircuitBreakerConfig builtCBC) {
-        CircuitBreakerRegistry cbr = CircuitBreakerRegistry.ofDefaults();
-        CircuitBreakerConfig cbc;
-        Optional<CircuitBreakerConfig> cbco = cbr.getConfiguration(CB_CONFIG_NAME);
-        if (!cbco.isPresent()) {
-            cbc = builtCBC;
-            cbr.addConfiguration(CB_CONFIG_NAME, cbc);
-        }
-        return cbr;
-    }
 
     public CircuitBreakerConfig testCircuitBreakerConfig() {
         CircuitBreakerConfig cbc = CircuitBreakerConfig.custom()
@@ -102,6 +83,30 @@ public class CircuitBreakerRedisCacheTest {
                 .slidingWindowSize(CB_SLIDING_WINDOW_SIZE) // how many calls to collect in a single aggregation
                 .build();
         return cbc;
+    }
+    
+    public CircuitBreaker defaultCircuitBreaker(CircuitBreakerRegistry circuitBreakerRegistry) {
+        CircuitBreaker circuitBreaker = circuitBreakerRegistry.circuitBreaker(CB_NAME, CB_CONFIG_NAME);
+        circuitBreaker.getEventPublisher().onStateTransition(event -> this.circuitBreakerStateTransition(event, circuitBreaker));
+        return circuitBreaker;
+    }
+    
+    private void circuitBreakerStateTransition(CircuitBreakerOnStateTransitionEvent event, CircuitBreaker cb) {
+    	logger.warning("CircuitBreaker " + event.getCircuitBreakerName() 
+	        + " transitioned from " + event.getStateTransition().getFromState() 
+	        + " to " + event.getStateTransition().getToState());
+    	CircuitBreakerRedisCache.logCBMetrics(cb, Level.WARNING);
+    }
+
+    public CircuitBreakerRegistry defaultCircuitBreakerRegistry(CircuitBreakerConfig builtCBC) {
+        CircuitBreakerRegistry cbr = CircuitBreakerRegistry.ofDefaults();
+        CircuitBreakerConfig cbc;
+        Optional<CircuitBreakerConfig> cbco = cbr.getConfiguration(CB_CONFIG_NAME);
+        if (!cbco.isPresent()) {
+            cbc = builtCBC;
+            cbr.addConfiguration(CB_CONFIG_NAME, cbc);
+        }
+        return cbr;
     }
     
     @Before
@@ -138,6 +143,32 @@ public class CircuitBreakerRedisCacheTest {
         Mockito.when(this.valueSerializationPair.write(Mockito.anyString())).thenReturn(ByteBuffer.wrap(TEST_KEY.getBytes()));
         Mockito.when(this.valueSerializationPair.read(Mockito.any(ByteBuffer.class))).thenReturn(TEST_KEY);
         Mockito.when(this.conversionService.convert(Mockito.any(), Mockito.eq(byte[].class))).thenReturn(TEST_KEY.getBytes());
+    }
+    
+    protected void setUpForSlowFailure() {
+        this.setUpForSuccess();
+        Mockito.when(this.cacheWriter.get(Mockito.anyString(), Mockito.any())).thenAnswer(new Answer<byte[]>() {
+
+			@Override
+			public byte[] answer(InvocationOnMock invocation) throws Throwable {
+				return slowReturn(TEST_KEY.getBytes());
+			}
+        	
+        });
+    }
+    
+    public static <T> T slowReturn(T val) {
+    	long sleep = CB_SLOW_CALL_DURATION.toMillis() + 500;
+    	return slowReturn(val, sleep);
+    }
+    
+    public static <T> T slowReturn(T val, long sleep) {
+    	logger.info("slowReturn for " + sleep + " ms");
+    	try {
+			Thread.sleep(sleep);
+		} catch (InterruptedException e) {
+		}
+		return val;
     }
 
     @Test
@@ -294,6 +325,42 @@ public class CircuitBreakerRedisCacheTest {
         } catch (Exception e) {
             e.printStackTrace();
             fail("Unexpected exception from redis cache clear: " + e.getMessage());
+        }
+    }
+
+    @Test
+    public void testCircuitBreakerOpenedSlow() {
+        this.setUpForSlowFailure();
+
+        for (int i = 0; i < CB_SLIDING_WINDOW_SIZE; i++) {
+            if (this.cb.getState().equals(State.CLOSED)) {
+                try {
+                    ValueWrapper value = this.cache.get(TEST_KEY);
+                    assertNotNull("Return value is null", value);
+                    assertEquals("Unexpected value type",SimpleValueWrapper.class, value.getClass());
+                    assertEquals("Unexpected value", TEST_KEY, ((SimpleValueWrapper)value).get());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    fail("Unexpected exception from redis cache: " + e.getMessage());
+                }
+            }
+        }
+        
+        // circuit should be open now
+        assertEquals("Unexpected circuit breaker state", CircuitBreaker.State.OPEN, this.cb.getState());
+        try {
+            ValueWrapper value = this.cache.get(TEST_KEY);
+            assertEquals("Unexpected value", null, value);
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail("Unexpected exception from redis cache: " + e.getMessage());
+        }
+
+        try {
+            this.cache.clear();
+        } catch (Exception e) {
+            e.printStackTrace();
+            fail("Unexpected exception from redis cache: " + e.getMessage());
         }
     }
 
